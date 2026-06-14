@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>我的世界 · 角色控制台</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        /* Chinese pixel font (graceful fallback if CDN unavailable) */
+        @font-face {
+            font-family: 'Zpix';
+            src: url('https://cdn.jsdelivr.net/gh/SolidZORO/zpix-pixel-font@master/dist/Zpix.ttf') format('truetype');
+            font-display: swap;
+        }
+        body {
+            font-family: 'Press Start 2P', 'Zpix', 'Segoe UI', sans-serif;
+            margin: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        #agents {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #ffffff;
+        }
+        .agent {
+            margin: 10px 0;
+            padding: 10px;
+            background: #363636;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .restart-btn, .start-btn, .stop-btn {
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 5px;
+        }
+        .restart-btn {
+            background: #4CAF50;
+        }
+        .start-btn {
+            background: #2196F3;
+        }
+        .stop-btn {
+            background: #f44336;
+        }
+        .restart-btn:hover { background: #45a049; }
+        .start-btn:hover { background: #1976D2; }
+        .stop-btn:hover { background: #d32f2f; }
+        .gear-btn {
+            background: #505050;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 2px 6px;
+            cursor: pointer;
+            margin-left: 6px;
+            font-size: 0.9em;
+        }
+        .gear-btn:hover { background: #5a5a5a; }
+        .status-icon {
+            font-size: 12px;
+            margin-right: 8px;
+        }
+        .status-icon.online {
+            color: #4CAF50;
+        }
+        .status-icon.offline {
+            color: #f44336;
+        }
+        #settingsForm {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .setting-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #3a3a3a;
+            padding: 6px 8px;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+            min-width: 0;
+        }
+        .setting-wrapper label {
+            flex: 0 0 50%;
+            font-size: 0.9em;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .setting-wrapper input[type="text"],
+        .setting-wrapper input[type="number"] {
+            flex: 1 1 0;
+            background: #262626;
+            border: 1px solid #555;
+            color: #e0e0e0;
+            border-radius: 4px;
+            padding: 4px 6px;
+            max-width: 100%;
+            min-width: 0;
+        }
+        .setting-wrapper input[type="checkbox"] {
+            transform: scale(1.2);
+        }
+        .agent-view-container {
+            width: 100%;
+            height: 100%;
+            aspect-ratio: 4/3;
+            overflow: hidden;
+        }
+        .agent-viewer {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+        .last-message {
+            font-style: italic;
+            color: #aaa;
+            margin-top: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            width: 100%;
+        }
+        .start-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .agent-view-container {
+            margin-top: 6px;
+            display: flex;
+            justify-content: flex-start;
+        }
+        .agent-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 8px;
+            width: 100%;
+            align-items: start;
+        }
+        .agent-grid .cell {
+            background: #3a3a3a;
+            padding: 6px 8px;
+            border-radius: 4px;
+        }
+        .agent-grid .cell.title {
+            background: transparent;
+            padding: 0;
+        }
+        .agent-inventory {
+            margin-top: 8px;
+            background: #2f2f2f;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        .agent-inventory h3 { margin: 0 0 6px 0; font-size: 1em; }
+        .inventory-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 6px;
+        }
+        /* Inventory item visuals */
+        .inventory-grid.empty {
+            display: grid;
+            grid-template-columns: 1fr;
+            color: #999;
+        }
+        .inv-item {
+            position: relative;
+            display: grid;
+            grid-template-rows: auto auto;
+            justify-items: center;
+            align-items: center;
+            gap: 4px;
+            background: #2f2f2f;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 8px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+        }
+        .inv-img {
+            width: 32px;
+            height: 32px;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        .inv-count {
+            position: absolute;
+            right: 6px;
+            bottom: 6px;
+            background: rgba(0,0,0,0.6);
+            color: #fff;
+            font-size: 0.8em;
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+        .inv-name {
+            font-size: 0.85em;
+            color: #ccc;
+            text-align: center;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        /* Armor icons */
+        .armor-grid {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .armor-slot {
+            position: relative;
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
+            background: #2f2f2f;
+            border: 1px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .armor-slot.empty { opacity: 0.4; }
+        .armor-placeholder { color: #888; font-size: 0.9em; }
+        .agent-details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 6px;
+            width: 100%;
+        }
+        .controls-row {
+            margin-top: 8px;
+            display: grid;
+            grid-template-columns: auto minmax(100px, 1fr) repeat(5, auto);
+            gap: 8px;
+            align-items: center;
+        }
+        .msg-input {
+            width: calc(100% - 8px);
+            background: #262626;
+            border: 1px solid #555;
+            color: #e0e0e0;
+            border-radius: 4px;
+            padding: 4px 6px;
+        }
+        .neutral-btn {
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 5px;
+            background: #505050;
+        }
+        .neutral-btn:hover { background: #5a5a5a; }
+        .neutral-btn:disabled {
+            background: #383838;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .mic-btn {
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 5px;
+            background: #505050;
+            user-select: none;
+        }
+        .mic-btn:hover { background: #5a5a5a; }
+        .mic-btn:disabled {
+            background: #383838;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .mic-btn.recording {
+            background: #c0392b;
+            animation: micpulse 1s infinite;
+        }
+        @keyframes micpulse {
+            0%, 100% { background: #c0392b; }
+            50% { background: #e74c3c; }
+        }
+        .msg-input:disabled {
+            background: #1a1a1a;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .page-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #2d2d2d;
+            padding: 16px;
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+        }
+        body {
+            padding-bottom: 80px;  /* Make room for footer */
+        }
+        .agent-stats-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            margin: 6px 0;
+            font-size: 0.9em;
+            color: #cccccc;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .agent-stats-row .stat {
+            background: #3a3a3a;
+            padding: 6px 8px;
+            border-radius: 4px;
+        }
+        .status-badge {
+            font-size: 0.75em;
+            margin-left: 8px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #3a3a3a;
+            color: #cccccc;
+            text-transform: lowercase;
+        }
+        .status-badge.online { color: #4CAF50; }
+        .status-badge.offline { color: #f44336; }
+        .title-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .title-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .title-spacer { flex: 1; }
+        /* Modal styles */
+        .modal-backdrop {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal {
+            background: #2d2d2d;
+            border-radius: 8px;
+            width: 80vw;
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid #3a3a3a;
+        }
+        .modal-close-btn {
+            background: #f44336;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+        }
+        .modal-body {
+            flex: 1 1 auto;
+            overflow: auto;
+            padding: 12px 16px;
+        }
+        .modal-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-top: 1px solid #3a3a3a;
+        }
+        .footer-left { color: #cccccc; font-style: italic; }
+
+        /* ============================================================
+           Minecraft 像素风主题 (Pixel theme overrides)
+           ============================================================ */
+        body {
+            background-color: #2b2b2b;
+            background-image:
+                linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)),
+                repeating-linear-gradient(0deg, #3a3a3a 0, #3a3a3a 16px, #343434 16px, #343434 32px),
+                repeating-linear-gradient(90deg, #3a3a3a 0, #3a3a3a 16px, #343434 16px, #343434 32px);
+            background-blend-mode: normal;
+            image-rendering: pixelated;
+            -webkit-font-smoothing: none;
+            font-smooth: never;
+            letter-spacing: 0.5px;
+            line-height: 1.6;
+        }
+        /* Pixel "dirt/stone" panel look with hard 3px bevel borders */
+        #agents, .modal, .page-footer, .agent, .agent-grid .cell, .setting-wrapper,
+        .agent-inventory, .inv-item, .armor-slot, .status-badge {
+            border-radius: 0 !important;
+            box-shadow: none !important;
+        }
+        #agents {
+            background: #6b6b6b;
+            border: 4px solid #2e2e2e;
+            box-shadow: inset -4px -4px 0 #4a4a4a, inset 4px 4px 0 #8a8a8a !important;
+            padding: 16px;
+        }
+        h1, h2, h3 {
+            font-family: 'Press Start 2P', 'Zpix', sans-serif;
+            color: #fefefe;
+            text-shadow: 3px 3px 0 #3f3f3f;
+        }
+        h1 { font-size: 1.4em; }
+        h2 { font-size: 1.0em; }
+        h3 { font-size: 0.85em; }
+        .agent {
+            background: #5a5a5a;
+            border: 3px solid #2e2e2e;
+            box-shadow: inset -3px -3px 0 #404040, inset 3px 3px 0 #7a7a7a !important;
+            padding: 12px;
+        }
+        .agent-grid .cell, .setting-wrapper, .agent-inventory, .inv-item, .armor-slot {
+            background: #4d4d4d;
+            border: 2px solid #2e2e2e !important;
+            box-shadow: inset -2px -2px 0 #3a3a3a, inset 2px 2px 0 #6a6a6a !important;
+            color: #f0f0f0;
+        }
+        /* Minecraft-style buttons: gray stone with hard bevel */
+        .restart-btn, .start-btn, .stop-btn, .neutral-btn, .gear-btn, .modal-close-btn,
+        #enterWorldBtn {
+            font-family: 'Press Start 2P', 'Zpix', sans-serif;
+            font-size: 0.7em;
+            border-radius: 0 !important;
+            border: 2px solid #1d1d1d !important;
+            box-shadow: inset -2px -2px 0 rgba(0,0,0,0.4), inset 2px 2px 0 rgba(255,255,255,0.25) !important;
+            text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+            padding: 8px 12px;
+            transition: filter 0.08s;
+        }
+        .start-btn { background: #5d9c4c; }
+        .start-btn:hover { background: #6cb359; filter: brightness(1.1); }
+        .restart-btn { background: #5d9c4c; }
+        .stop-btn { background: #a93b3b; }
+        .stop-btn:hover { background: #c24545; }
+        .neutral-btn { background: #6a6a6a; }
+        .neutral-btn:hover { background: #7a7a7a; }
+        .gear-btn { background: #6a6a6a; font-size: 0.8em; padding: 4px 8px; }
+        .restart-btn:active, .start-btn:active, .stop-btn:active, .neutral-btn:active,
+        .gear-btn:active, #enterWorldBtn:active {
+            box-shadow: inset 2px 2px 0 rgba(0,0,0,0.4) !important;
+            transform: translate(1px, 1px);
+        }
+        /* Inputs / selects pixel style */
+        input[type="text"], input[type="number"], select, .msg-input {
+            font-family: 'Zpix', 'Press Start 2P', monospace !important;
+            border-radius: 0 !important;
+            background: #2a2a2a !important;
+            border: 2px solid #1d1d1d !important;
+            box-shadow: inset 2px 2px 0 rgba(0,0,0,0.5) !important;
+            color: #e8e8e8 !important;
+        }
+        select option { background: #2a2a2a; color: #e8e8e8; }
+        /* Status badge as a pixel tag */
+        .status-badge {
+            font-family: 'Zpix', sans-serif;
+            border: 2px solid #1d1d1d !important;
+            box-shadow: inset -2px -2px 0 #3a3a3a, inset 2px 2px 0 #6a6a6a !important;
+            background: #4d4d4d;
+            text-transform: none;
+        }
+        .status-badge.online { color: #7CFC6A; }
+        .status-badge.offline { color: #ff6b6b; }
+        .status-icon.online { color: #7CFC6A; }
+        .status-icon.offline { color: #ff6b6b; }
+        .page-footer {
+            background: #4d4d4d;
+            border-top: 4px solid #1d1d1d;
+            box-shadow: 0 -2px 0 #6a6a6a inset !important;
+        }
+        .modal {
+            background: #5a5a5a;
+            border: 4px solid #1d1d1d;
+            box-shadow: inset -4px -4px 0 #404040, inset 4px 4px 0 #7a7a7a !important;
+        }
+        .modal-header, .modal-footer { border-color: #2e2e2e; }
+        .last-message { font-family: 'Zpix', sans-serif; font-style: normal; }
+        /* Pixel scrollbar */
+        ::-webkit-scrollbar { width: 14px; height: 14px; }
+        ::-webkit-scrollbar-track { background: #2e2e2e; }
+        ::-webkit-scrollbar-thumb {
+            background: #6a6a6a;
+            border: 3px solid #2e2e2e;
+        }
+    </style>
+</head>
+<body>
+    <div class="title-row">
+        <div class="title-left">
+            <h1 style="margin: 0;">我的世界 · 角色控制台</h1>
+            <span id="msStatus" class="status-badge offline">服务器离线</span>
+        </div>
+        <div class="title-spacer"></div>
+        <div class="character-bar" style="display:flex; align-items:center; gap:8px;">
+            <label for="characterSelect" style="color:#ddd; font-size:0.9em;">角色：</label>
+            <select id="characterSelect" style="padding:6px 8px; min-width:160px;">
+                <option value="">加载中…</option>
+            </select>
+            <label for="enterHost" style="color:#ddd; font-size:0.9em;">地址：</label>
+            <input id="enterHost" type="text" placeholder="127.0.0.1" style="padding:6px 8px; width:120px;">
+            <label style="color:#ddd; font-size:0.9em; display:flex; align-items:center; gap:4px;">
+                <input id="autoPort" type="checkbox" checked> 自动找端口
+            </label>
+            <label for="enterPort" style="color:#ddd; font-size:0.9em;">端口：</label>
+            <input id="enterPort" type="number" placeholder="自动" style="padding:6px 8px; width:90px;" disabled>
+            <button id="enterWorldBtn" class="start-btn" disabled>进入世界</button>
+            <span id="enterWorldStatus" style="color:#bbb; font-size:0.85em;"></span>
+        </div>
+    </div>
+    <div id="agents"></div>
+
+    <div class="page-footer">
+        <div>
+            <button id="openCreateAgentBtn" class="start-btn">新建角色</button>
+        </div>
+        <div style="display:flex; gap:12px;">
+            <button class="stop-btn" onclick="disconnectAllAgents()">断开所有角色</button>
+            <button class="stop-btn" onclick="confirmShutdown()">关闭服务器</button>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="createAgentModal" class="modal-backdrop">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 style="margin:0;">新建角色</h2>
+                <button id="closeCreateAgentBtn" class="modal-close-btn">关闭</button>
+            </div>
+            <div class="modal-body">
+                <div id="createAgentSection">
+                    <div id="profileStatus" style="margin:6px 0;">配置文件：尚未上传</div>
+                    <div id="settingsForm"></div>
+                    <div id="createError" style="color:#ff6b6b;margin-top:10px;"></div>
+                    <input type="file" id="profileFileInput" accept=".json,application/json" style="display:none">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="footer-left" id="footerStatus">先配置参数，再上传角色配置文件，然后创建角色。</div>
+                <div class="footer-actions">
+                    <button id="uploadProfileBtn" class="start-btn">上传配置</button>
+                    <button id="submitCreateAgentBtn" class="start-btn" disabled>创建角色</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Settings Modal -->
+    <div id="agentSettingsModal" class="modal-backdrop">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="agentSettingsTitle" style="margin:0;">角色设置</h2>
+                <button id="closeAgentSettingsBtn" class="modal-close-btn">关闭</button>
+            </div>
+            <div class="modal-body">
+                <div id="agentSettingsSection">
+                    <div id="agentSettingsForm"></div>
+                    <div id="agentSettingsError" style="color:#ff6b6b;margin-top:10px;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="footer-left" id="agentSettingsFooter">修改设置后点击应用即可重启角色。</div>
+                <div class="footer-actions">
+                    <button id="discardAgentSettingsBtn" class="stop-btn" style="background:#777;">放弃修改</button>
+                    <button id="applyAgentSettingsBtn" class="start-btn" disabled>应用并重启</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io({ path: window.location.pathname + 'socket.io' })
+        const agentsDiv = document.getElementById('agents');
+        let settingsSpec = {};
+        let profileData = null;
+        const agentSettings = {};
+        const agentLastMessage = {};
+        const inventoryOpen = {};
+        let currentAgents = [];
+
+        // Item texture helpers (use PrismarineJS minecraft-assets CDN with graceful fallbacks)
+        const BASE_ICON_VERSION_CANDIDATES = ['1.21.8'];
+        const PATH_CANDIDATES = ['items', 'blocks'];
+        function buildVersionCandidatesForAgent(agentName) {
+            const preferred = (agentSettings[agentName] && agentSettings[agentName].minecraft_version && agentSettings[agentName].minecraft_version !== 'auto')
+                ? [String(agentSettings[agentName].minecraft_version)]
+                : [];
+            const merged = [...preferred, ...BASE_ICON_VERSION_CANDIDATES];
+            // de-duplicate while preserving order
+            const seen = new Set();
+            const uniq = [];
+            for (const v of merged) { if (!seen.has(v)) { seen.add(v); uniq.push(v); } }
+            return uniq;
+        }
+        function getItemIconUrl(itemName, vers, pathType) {
+            return `https://raw.githubusercontent.com/PrismarineJS/minecraft-assets/master/data/${vers}/${pathType}/${itemName}.png`;
+        }
+        function buildIconUrlCandidates(itemName, agentName) {
+            // Prefer local proxy that resolves items vs blocks using minecraft-assets
+            const proxiedFirst = [`/assets/item/${agentName}/${itemName}.png`];
+            const versList = buildVersionCandidatesForAgent(agentName);
+            const urls = [...proxiedFirst];
+            for (const vers of versList) {
+                for (const p of PATH_CANDIDATES) {
+                    urls.push(getItemIconUrl(itemName, vers, p));
+                }
+            }
+            return urls;
+        }
+        function fallbackItemIcon(imgEl) {
+            const list = (imgEl.dataset.urlList ? imgEl.dataset.urlList.split('||') : []);
+            let i = Number(imgEl.dataset.urlIndex || '0');
+            if (i < list.length - 1) {
+                i++;
+                imgEl.dataset.urlIndex = String(i);
+                imgEl.src = list[i];
+            } else {
+                imgEl.onerror = null;
+                imgEl.src = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="100%" height="100%" fill="#444"/><text x="50%" y="55%" font-size="12" fill="#bbb" text-anchor="middle">?</text></svg>');
+            }
+        }
+        function prettyItemName(name) {
+            return String(name || '').replace(/_/g, ' ');
+        }
+
+        function iconHTMLForItem(itemName, title, agentName) {
+            const cands = buildIconUrlCandidates(itemName, agentName);
+            const icon = cands[0];
+            return `
+                <div class="armor-slot" title="${title}">
+                    <img class="inv-img" src="${icon}" data-url-index="0" data-url-list="${cands.join('||')}" onerror="fallbackItemIcon(this)" alt="${title}">
+                </div>
+            `;
+        }
+        function emptySlotHTML(label) {
+            return `<div class="armor-slot empty" title="${label}：无"><span class="armor-placeholder">-</span></div>`;
+        }
+
+        const statusEl = document.getElementById('msStatus');
+        function updateStatus(connected) {
+            if (!statusEl) return;
+            if (connected) {
+                statusEl.textContent = '服务器在线';
+                statusEl.classList.remove('offline');
+                statusEl.classList.add('online');
+            } else {
+                statusEl.textContent = '服务器离线';
+                statusEl.classList.remove('online');
+                statusEl.classList.add('offline');
+            }
+        }
+        function subscribeToState() {
+            socket.emit('listen-to-agents');
+        }
+        // Initial status
+        updateStatus(false);
+        socket.on('connect', () => {
+            updateStatus(true);
+            subscribeToState();
+            // Clear all cached settings on reconnect
+            Object.keys(agentSettings).forEach(name => delete agentSettings[name]);
+        });
+        socket.on('disconnect', () => {
+            updateStatus(false);
+        });
+        socket.on('connect_error', () => {
+            updateStatus(false);
+        });
+
+        fetch('/settings_spec.json')
+            .then(r => r.json())
+            .then(spec => {
+                settingsSpec = spec;
+                buildSettingsForm();
+            });
+
+        // ---- Character quick-select bar ----
+        let characterList = [];        // [{file, name, profile}]
+        let characterDefaults = {};    // connection defaults from settings.js
+        const characterSelect = document.getElementById('characterSelect');
+        const enterWorldBtn = document.getElementById('enterWorldBtn');
+        const enterWorldStatus = document.getElementById('enterWorldStatus');
+
+        function loadCharacters() {
+            socket.emit('list-characters', (res) => {
+                if (!res || !res.success) {
+                    characterSelect.innerHTML = '<option value="">（加载失败）</option>';
+                    enterWorldStatus.textContent = res?.error || '无法获取角色列表';
+                    return;
+                }
+                characterList = res.characters || [];
+                characterDefaults = res.defaults || {};
+                // prefill host/port from settings.js defaults (don't clobber what the user typed)
+                const hostBox = document.getElementById('enterHost');
+                const portBox = document.getElementById('enterPort');
+                if (hostBox && hostBox.value === '' && characterDefaults.host !== undefined)
+                    hostBox.value = characterDefaults.host;
+                if (portBox && portBox.value === '' && characterDefaults.port !== undefined)
+                    portBox.value = characterDefaults.port;
+                if (characterList.length === 0) {
+                    characterSelect.innerHTML = '<option value="">（未找到角色）</option>';
+                    enterWorldBtn.disabled = true;
+                    return;
+                }
+                characterSelect.innerHTML = characterList
+                    .map((c, i) => `<option value="${i}">${c.name}</option>`)
+                    .join('');
+                enterWorldBtn.disabled = false;
+                enterWorldStatus.textContent = '';
+            });
+        }
+
+        function characterIsOnline(name) {
+            // Only treat a character as "online" if it's actually in the world.
+            // A lingering socket from a failed run is a stale record; the backend
+            // auto-evicts it on create-agent, so don't block the user here.
+            return currentAgents.some(a => a.name === name && a.in_game);
+        }
+
+        enterWorldBtn.addEventListener('click', () => {
+            const idx = characterSelect.value;
+            if (idx === '' || !characterList[idx]) return;
+            const character = characterList[idx];
+            if (characterIsOnline(character.name)) {
+                enterWorldStatus.style.color = '#f0ad4e';
+                enterWorldStatus.textContent = `${character.name} 已经在线啦`;
+                return;
+            }
+            // build settings from the connection defaults + this character's profile
+            const settings = { profile: character.profile };
+            Object.keys(settingsSpec).forEach(key => {
+                if (key === 'profile') return;
+                if (characterDefaults[key] !== undefined) settings[key] = characterDefaults[key];
+            });
+            // host/port typed into the character bar override the settings.js defaults
+            // (LAN port changes every session)
+            const hostBox = document.getElementById('enterHost');
+            const portBox = document.getElementById('enterPort');
+            const autoPort = document.getElementById('autoPort');
+            if (hostBox && hostBox.value.trim() !== '') settings.host = hostBox.value.trim();
+            if (autoPort && autoPort.checked) {
+                // -1 = let the backend scan the LAN for the open world and connect
+                // automatically, so the user never has to look up the port.
+                settings.port = -1;
+            } else if (portBox && portBox.value.trim() !== '') {
+                const p = Number(portBox.value);
+                if (!Number.isNaN(p)) settings.port = p;
+            }
+            enterWorldBtn.disabled = true;
+            enterWorldStatus.style.color = '#bbb';
+            enterWorldStatus.textContent = `正在让 ${character.name} 进入世界…`;
+            socket.emit('create-agent', settings, (res) => {
+                enterWorldBtn.disabled = false;
+                if (res && res.success) {
+                    enterWorldStatus.style.color = '#7CFC6A';
+                    enterWorldStatus.textContent = `${character.name} 已进入世界！`;
+                } else {
+                    enterWorldStatus.style.color = '#ff6b6b';
+                    enterWorldStatus.textContent = res?.error || '创建角色失败';
+                }
+            });
+        });
+
+        // toggle the manual port box based on the "自动找端口" checkbox
+        const autoPortBox = document.getElementById('autoPort');
+        const enterPortBox = document.getElementById('enterPort');
+        if (autoPortBox && enterPortBox) {
+            const syncPortBox = () => {
+                enterPortBox.disabled = autoPortBox.checked;
+                enterPortBox.placeholder = autoPortBox.checked ? '自动' : '端口';
+            };
+            autoPortBox.addEventListener('change', syncPortBox);
+            syncPortBox();
+        }
+
+        loadCharacters();
+
+        function buildSettingsForm() {
+            const form = document.getElementById('settingsForm');
+            form.innerHTML = '';
+            // ensure grid for multi-column layout
+            form.style.display = 'grid';
+            form.style.gridTemplateColumns = 'repeat(auto-fit, minmax(320px, 1fr))';
+            form.style.gap = '8px';
+            Object.keys(settingsSpec).forEach(key => {
+                if (key === 'profile') return; // profile handled via upload
+                const cfg = settingsSpec[key];
+                const wrapper = document.createElement('div');
+                wrapper.className = 'setting-wrapper';
+                const label = document.createElement('label');
+                label.textContent = key;
+                label.title = cfg.description || '';
+                let input;
+                switch (cfg.type) {
+                    case 'boolean':
+                        input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.checked = cfg.default === true;
+                        break;
+                    case 'number':
+                        input = document.createElement('input');
+                        input.type = 'number';
+                        input.value = cfg.default;
+                        break;
+                    default:
+                        input = document.createElement('input');
+                        input.type = 'text';
+                        input.value = typeof cfg.default === 'object' ? JSON.stringify(cfg.default) : cfg.default;
+                }
+                input.title = cfg.description || '';
+                input.id = `setting-${key}`;
+                wrapper.appendChild(label);
+                wrapper.appendChild(input);
+                form.appendChild(wrapper);
+            });
+        }
+
+        document.getElementById('uploadProfileBtn').addEventListener('click', () => {
+            document.getElementById('profileFileInput').click();
+        });
+
+        document.getElementById('profileFileInput').addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                try {
+                    profileData = JSON.parse(ev.target.result);
+                    document.getElementById('submitCreateAgentBtn').disabled = false;
+                    document.getElementById('profileStatus').textContent = `配置文件：${profileData.name || '已上传'}`;
+                    document.getElementById('createError').textContent = '';
+                } catch (err) {
+                    document.getElementById('createError').textContent = '配置文件 JSON 无效：' + err.message;
+                    profileData = null;
+                    document.getElementById('submitCreateAgentBtn').disabled = true;
+                    document.getElementById('profileStatus').textContent = '配置文件：尚未上传';
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        });
+
+        document.getElementById('submitCreateAgentBtn').addEventListener('click', () => {
+            if (!profileData) return;
+            const settings = { profile: profileData };
+            Object.keys(settingsSpec).forEach(key => {
+                if (key === 'profile') return;
+                const input = document.getElementById(`setting-${key}`);
+                if (!input) return;
+                const type = settingsSpec[key].type;
+                let val;
+                if (type === 'boolean') val = input.checked;
+                else if (type === 'number') val = Number(input.value);
+                else if (type === 'array' || type === 'object') {
+                    try { val = JSON.parse(input.value); }
+                    catch { val = input.value; }
+                } else val = input.value;
+                settings[key] = val;
+            });
+            socket.emit('create-agent', settings, res => {
+                if (!res.success) {
+                    document.getElementById('createError').textContent = res.error || '未知错误';
+                } else {
+                    // reset on success
+                    profileData = null;
+                    document.getElementById('submitCreateAgentBtn').disabled = true;
+                    document.getElementById('profileStatus').textContent = '配置文件：尚未上传';
+                    document.getElementById('createError').textContent = '';
+                    hideCreateAgentModal();
+                }
+            });
+        });
+
+        // Modal open/close logic
+        const modalBackdrop = document.getElementById('createAgentModal');
+        document.getElementById('openCreateAgentBtn').addEventListener('click', () => {
+            buildSettingsForm();
+            modalBackdrop.style.display = 'flex';
+        });
+        function hideCreateAgentModal() {
+            modalBackdrop.style.display = 'none';
+        }
+        document.getElementById('closeCreateAgentBtn').addEventListener('click', hideCreateAgentModal);
+
+        socket.on('bot-output', (agentName, message) => {
+            agentLastMessage[agentName] = message;
+            const messageDiv = document.getElementById(`lastMessage-${agentName}`);
+            if (messageDiv) {
+                messageDiv.textContent = message;
+            }
+        });
+
+        // Subscribe to aggregated state updates (re-sent on each connect)
+        socket.on('state-update', (states) => {
+            window.lastStates = states;
+            Object.keys(states || {}).forEach(name => {
+                const st = states[name];
+                const healthEl = document.getElementById(`health-${name}`);
+                if (st && !st.error) {
+                    const gp = st.gameplay || {};
+                    if (healthEl && typeof gp.health === 'number') {
+                        const hMax = typeof gp.healthMax === 'number' ? gp.healthMax : 20;
+                        healthEl.textContent = `生命：${gp.health}/${hMax}`;
+                    }
+                    const posEl = document.getElementById(`pos-${name}`);
+                    const hunEl = document.getElementById(`hunger-${name}`);
+                    const bioEl = document.getElementById(`biome-${name}`);
+                    const modeEl = document.getElementById(`mode-${name}`);
+                    const itemsEl = document.getElementById(`items-${name}`);
+                    const equippedEl = document.getElementById(`equipped-${name}`);
+                    const invGrid = document.getElementById(`inventory-${name}`);
+                    const actionEl = document.getElementById(`action-${name}`);
+                    if (posEl && gp.position) {
+                        const p = gp.position;
+                        posEl.textContent = `坐标：x ${p.x}, y ${p.y}, z ${p.z}`;
+                    }
+                    if (hunEl && typeof gp.hunger === 'number') {
+                        const fMax = typeof gp.hungerMax === 'number' ? gp.hungerMax : 20;
+                        hunEl.textContent = `饥饿：${gp.hunger}/${fMax}`;
+                    }
+                    if (bioEl && gp.biome) bioEl.textContent = `生物群系：${gp.biome}`;
+                    if (modeEl && gp.gamemode) modeEl.textContent = `游戏模式：${gp.gamemode}`;
+                    if (itemsEl && st.inventory) {
+                        const used = st.inventory.stacksUsed ?? 0;
+                        const total = st.inventory.totalSlots ?? 0;
+                        itemsEl.textContent = `背包格子：${used}/${total}`;
+                    }
+                    if (equippedEl && st.inventory?.equipment) {
+                        const e = st.inventory.equipment;
+                        equippedEl.textContent = `手持：${e.mainHand || '无'}`;
+                    }
+                    const armorEl = document.getElementById(`armor-${name}`);
+                    if (armorEl && st.inventory?.equipment) {
+                        const e = st.inventory.equipment;
+                        const parts = [];
+                        parts.push(e.helmet ? iconHTMLForItem(e.helmet, `头部：${prettyItemName(e.helmet)}`, name) : emptySlotHTML('头部'));
+                        parts.push(e.chestplate ? iconHTMLForItem(e.chestplate, `胸甲：${prettyItemName(e.chestplate)}`, name) : emptySlotHTML('胸甲'));
+                        parts.push(e.leggings ? iconHTMLForItem(e.leggings, `护腿：${prettyItemName(e.leggings)}`, name) : emptySlotHTML('护腿'));
+                        parts.push(e.boots ? iconHTMLForItem(e.boots, `鞋子：${prettyItemName(e.boots)}`, name) : emptySlotHTML('鞋子'));
+                        // Main hand for quick glance
+                        parts.push(e.mainHand ? iconHTMLForItem(e.mainHand, `主手：${prettyItemName(e.mainHand)}`, name) : emptySlotHTML('主手'));
+                        armorEl.innerHTML = `<div class="armor-grid">${parts.join('')}</div>`;
+                    }
+                    if (actionEl && st.action) {
+                        actionEl.textContent = `动作：${st.action.current || '空闲'}`;
+                    }
+                    if (invGrid && st.inventory?.counts) {
+                        const counts = st.inventory.counts;
+                        const entries = Object.entries(counts);
+                        if (entries.length) {
+                            invGrid.classList.remove('empty');
+                            invGrid.innerHTML = entries
+                                .sort((a, b) => a[0].localeCompare(b[0]))
+                                .map(([k, v]) => {
+                                    const title = prettyItemName(k);
+                                    const safeAttr = k.replace(/'/g, "\\'");
+                                    const iconCandidates = buildIconUrlCandidates(k, name);
+                                    const icon = iconCandidates[0];
+                                    return `
+                                        <div class="inv-item" title="${title}">
+                                            <img class="inv-img" src="${icon}" data-url-index="0" data-url-list="${iconCandidates.join('||')}" onerror="fallbackItemIcon(this)" alt="${title}">
+                                            <div class="inv-count">${v}</div>
+                                            <div class="inv-name">${title}</div>
+                                        </div>
+                                    `;
+                                })
+                                .join('');
+                        } else {
+                            invGrid.classList.add('empty');
+                            invGrid.innerHTML = '<div class="cell">（空）</div>';
+                        }
+                    }
+                }
+            });
+        });
+
+        function fetchAgentSettings(name) {
+            return new Promise((resolve) => {
+                if (agentSettings[name]) { resolve(agentSettings[name]); return; }
+                socket.emit('get-settings', name, res => {
+                    if (res.settings) {
+                        agentSettings[name] = res.settings;
+                        resolve(res.settings);
+                    } else resolve(null);
+                });
+            });
+        }
+
+        // Agent settings modal logic
+        const agentSettingsModal = document.getElementById('agentSettingsModal');
+        const agentSettingsForm = document.getElementById('agentSettingsForm');
+        const applyBtn = document.getElementById('applyAgentSettingsBtn');
+        const discardBtn = document.getElementById('discardAgentSettingsBtn');
+        const closeAgentSettingsBtn = document.getElementById('closeAgentSettingsBtn');
+        const agentSettingsTitle = document.getElementById('agentSettingsTitle');
+        let currentAgentName = null;
+        let originalAgentSettings = null;
+
+        function buildAgentSettingsForm(settings) {
+            agentSettingsForm.innerHTML = '';
+            agentSettingsForm.style.display = 'grid';
+            agentSettingsForm.style.gridTemplateColumns = 'repeat(auto-fit, minmax(320px, 1fr))';
+            agentSettingsForm.style.gap = '8px';
+            Object.keys(settingsSpec).forEach(key => {
+                if (key === 'profile') return; // profile not edited here
+                const cfg = settingsSpec[key];
+                const wrapper = document.createElement('div');
+                wrapper.className = 'setting-wrapper';
+                const label = document.createElement('label');
+                label.textContent = key;
+                label.title = cfg.description || '';
+                let input;
+                switch (cfg.type) {
+                    case 'boolean':
+                        input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.checked = Boolean(settings[key]);
+                        break;
+                    case 'number':
+                        input = document.createElement('input');
+                        input.type = 'number';
+                        input.value = settings[key] ?? cfg.default ?? 0;
+                        break;
+                    default:
+                        input = document.createElement('input');
+                        input.type = 'text';
+                        const defVal = settings[key] ?? cfg.default ?? '';
+                        input.value = typeof defVal === 'object' ? JSON.stringify(defVal) : defVal;
+                }
+                input.id = `agent-setting-${key}`;
+                input.addEventListener('input', onAgentSettingsChanged);
+                if (input.type === 'checkbox') input.addEventListener('change', onAgentSettingsChanged);
+                wrapper.appendChild(label);
+                wrapper.appendChild(input);
+                agentSettingsForm.appendChild(wrapper);
+            });
+            onAgentSettingsChanged();
+        }
+
+        function openAgentSettings(name) {
+            currentAgentName = name;
+            agentSettingsTitle.textContent = `${name} 设置`;
+            fetchAgentSettings(name).then(settings => {
+                originalAgentSettings = JSON.parse(JSON.stringify(settings || {}));
+                buildAgentSettingsForm(settings || {});
+                agentSettingsModal.style.display = 'flex';
+            });
+        }
+        window.openAgentSettings = openAgentSettings;
+
+        function getEditedAgentSettings() {
+            const newSettings = { profile: (originalAgentSettings && originalAgentSettings.profile) || {} };
+            Object.keys(settingsSpec).forEach(key => {
+                if (key === 'profile') return;
+                const cfg = settingsSpec[key];
+                const input = document.getElementById(`agent-setting-${key}`);
+                if (!input) return;
+                let val;
+                if (cfg.type === 'boolean') val = input.checked;
+                else if (cfg.type === 'number') val = Number(input.value);
+                else if (cfg.type === 'array' || cfg.type === 'object') {
+                    try { val = JSON.parse(input.value); }
+                    catch { val = input.value; }
+                } else val = input.value;
+                newSettings[key] = val;
+            });
+            return newSettings;
+        }
+
+        function shallowEqual(a, b) {
+            if (!a || !b) return false;
+            const keys = Object.keys(settingsSpec).filter(k => k !== 'profile');
+            for (const k of keys) {
+                const va = a[k];
+                const vb = b[k];
+                if (typeof va === 'object' || typeof vb === 'object') {
+                    if (JSON.stringify(va) !== JSON.stringify(vb)) return false;
+                } else if (va !== vb) return false;
+            }
+            return true;
+        }
+
+        function onAgentSettingsChanged() {
+            if (!originalAgentSettings) { applyBtn.disabled = true; return; }
+            const edited = getEditedAgentSettings();
+            applyBtn.disabled = shallowEqual(edited, originalAgentSettings);
+        }
+
+        function closeAgentSettings() {
+            agentSettingsModal.style.display = 'none';
+            currentAgentName = null;
+            originalAgentSettings = null;
+        }
+
+        function updateAgentViewer(name) {
+            const agentEl = document.getElementById(`agent-${name}`);
+            if (!agentEl) return;
+
+            const settings = agentSettings[name];
+            const viewerContainer = agentEl.querySelector('.agent-view-container');
+            if (!viewerContainer) return;
+
+            const agentState = currentAgents.find(a => a.name === name);
+            const shouldShow = agentState?.in_game && settings?.render_bot_view === true;
+            viewerContainer.parentElement.style.display = shouldShow ? '' : 'none';
+        }
+
+        discardBtn.addEventListener('click', () => {
+            if (!currentAgentName || !originalAgentSettings) return;
+            buildAgentSettingsForm(originalAgentSettings);
+        });
+
+        applyBtn.addEventListener('click', () => {
+            if (!currentAgentName) return;
+            const edited = getEditedAgentSettings();
+            socket.emit('set-agent-settings', currentAgentName, edited);
+            // Update local settings immediately
+            agentSettings[currentAgentName] = { ...edited, fetched: true };
+            updateAgentViewer(currentAgentName);
+            closeAgentSettings();
+        });
+
+        closeAgentSettingsBtn.addEventListener('click', closeAgentSettings);
+
+
+        function renderAgentCard(agent) {
+            const cfg = agentSettings[agent.name] || {};
+            const showViewer = agent.in_game && cfg.render_bot_view === true;
+            const viewerPort = agent.viewerPort;
+            const viewerHTML = showViewer ? `<div class="agent-view-container"><iframe class="agent-viewer" id="viewer-${agent.name}" src="http://localhost:${viewerPort}"></iframe></div>` : '';
+            const lastMessage = agentLastMessage[agent.name] || '';
+            const invOpen = inventoryOpen[agent.name] === true;
+            const invStyle = invOpen ? '' : 'display:none;';
+            return `
+                    <div class="agent" id="agent-${agent.name}">
+                        <div class="agent-grid">
+                            <div class="cell title" style="grid-column: 1 / -1; display:flex; align-items:center; justify-content:space-between;">
+                                <span><span class="status-icon ${agent.in_game ? 'online' : 'offline'}">●</span>${agent.name}${agent.socket_connected && !agent.in_game ? '<span style="margin-left:6px;color:#f0ad4e;">加入中…</span>' : ''}
+                                    <button class="gear-btn" title="设置" onclick="openAgentSettings('${agent.name}')">⚙</button>
+                                    <button class="gear-btn" title="背包" onclick="toggleDetails('${agent.name}')">背包</button>
+                                </span>
+                            </div>
+                            ${showViewer ? `<div class="cell" style="grid-row: span 3; padding:0;">${viewerHTML}</div>` : ''}
+                            <div class="cell" id="action-${agent.name}">动作：-</div>
+                            <div class="cell" id="mode-${agent.name}">游戏模式：-</div>
+                            <div class="cell" id="health-${agent.name}">生命：-</div>
+                            <div class="cell" id="hunger-${agent.name}">饥饿：-</div>
+                            <div class="cell" id="pos-${agent.name}">坐标：-</div>
+                            <div class="cell" id="biome-${agent.name}">生物群系：-</div>
+                            <div class="cell" id="items-${agent.name}">背包格子：-</div>
+                            <div class="cell" id="equipped-${agent.name}">手持：-</div>
+                            <div class="agent-inventory" id="inventorySection-${agent.name}" style="${invStyle} grid-column: 1 / -1;">
+                                <h3>背包</h3>
+                                <div class="cell" id="armor-${agent.name}" style="margin-bottom: 8px;">装备：-</div>
+                                <div class="inventory-grid" id="inventory-${agent.name}"></div>
+                            </div>
+                            <div id="lastMessage-${agent.name}" class="last-message" style="grid-column: 1 / -1;"><strong>最近消息：</strong> ${lastMessage}</div>
+                        </div>
+                        <div class="controls-row">
+                            <button class="start-btn" id="sendBtn-${agent.name}" disabled onclick="sendMessage('${agent.name}', document.getElementById('messageInput-${agent.name}').value)">发送</button>
+                            <input class="msg-input" type="text" id="messageInput-${agent.name}" placeholder="输入消息…" 
+                                oninput="onMsgInputChange('${agent.name}')"
+                                onfocus="activeVoiceAgent='${agent.name}'"
+                                onkeydown="if(event.key === 'Enter') document.getElementById('sendBtn-${agent.name}').click()"
+                                ${!agent.in_game ? 'disabled' : ''}>
+                            <button class="mic-btn" id="micBtn-${agent.name}" title="按住说话（或按住 V 键）"
+                                onmousedown="startVoice('${agent.name}')" onmouseup="stopVoice()" onmouseleave="stopVoice()"
+                                ${!agent.in_game ? 'disabled' : ''}>🎤 按住说话</button>
+                            <button class="neutral-btn" onclick="sendMessage('${agent.name}', '!stop')" ${!agent.in_game ? 'disabled' : ''}>停止动作</button>
+                            <button class="neutral-btn" onclick="sendMessage('${agent.name}', '!stay(-1)')" ${!agent.in_game ? 'disabled' : ''}>原地待命</button>
+                            <button class="neutral-btn" onclick="restartAgent('${agent.name}')" ${!agent.in_game ? 'disabled' : ''}>重启</button>
+                            <button class="neutral-btn" ${agent.in_game ? `onclick=\"disconnectAgent('${agent.name}')\"` : (agent.socket_connected ? 'disabled' : `onclick=\"startAgent('${agent.name}')\"`)}>${agent.in_game ? '断开' : (agent.socket_connected ? '连接中…' : '连接')}</button>
+                            <button class="stop-btn" onclick="destroyAgent('${agent.name}')">移除</button>
+                        </div>
+                    </div>`;
+        }
+
+        async function renderAgents(agents) {
+            if (!agents.length) {
+                agentsDiv.innerHTML = '<div class="agent">暂无角色在线</div>';
+                return;
+            }
+
+            // If agentsDiv is empty, do a full render
+            if (!agentsDiv.children.length) {
+                agentsDiv.innerHTML = agents.map(agent => renderAgentCard(agent)).join('');
+                // Update all viewers after initial render
+                setTimeout(() => {
+                    agents.forEach(a => {
+                        if (a.in_game) updateAgentViewer(a.name);
+                    });
+                }, 0);
+                return;
+            }
+
+            // Compare with current agents to find changes
+            const prevAgents = currentAgents.reduce((acc, a) => ({ ...acc, [a.name]: a }), {});
+            const changedAgents = agents.filter(a => {
+                const prev = prevAgents[a.name];
+                return !prev || prev.in_game !== a.in_game || prev.viewerPort !== a.viewerPort || prev.socket_connected !== a.socket_connected;
+            });
+
+            // Update only changed agents
+            changedAgents.forEach(agent => {
+                const el = document.getElementById(`agent-${agent.name}`);
+                if (el) {
+                    // Update existing card
+                    el.outerHTML = renderAgentCard(agent);
+                    if (agent.in_game) updateAgentViewer(agent.name);
+                } else {
+                    // Add new card
+                    agentsDiv.insertAdjacentHTML('beforeend', renderAgentCard(agent));
+                    if (agent.in_game) updateAgentViewer(agent.name);
+                }
+            });
+
+            // Remove cards for agents that no longer exist
+            Array.from(agentsDiv.children).forEach(el => {
+                const name = el.id.replace('agent-', '');
+                if (!agents.find(a => a.name === name)) {
+                    el.remove();
+                    delete inventoryOpen[name];
+                }
+            });
+        }
+
+        socket.on('agents-status', async (agents) => {
+            // Fetch settings for all agents that don't have current settings
+            const needSettings = agents.filter(a => !agentSettings[a.name]);
+            if (needSettings.length > 0) {
+                await Promise.all(needSettings.map(async (a) => {
+                    const settings = await fetchAgentSettings(a.name);
+                    if (settings) {
+                        agentSettings[a.name] = settings;
+                    }
+                }));
+            }
+
+            // Compare with current agents to find changes
+            const prevAgents = currentAgents.reduce((acc, a) => ({ ...acc, [a.name]: a }), {});
+            const changedAgents = agents.filter(a => {
+                const prev = prevAgents[a.name];
+                return !prev || prev.in_game !== a.in_game || prev.viewerPort !== a.viewerPort || prev.socket_connected !== a.socket_connected;
+            });
+
+            // Update current agents list
+            currentAgents = agents;
+
+            // If agentsDiv is empty, do a full render
+            if (!agentsDiv.children.length) {
+                agentsDiv.innerHTML = agents.map(agent => renderAgentCard(agent)).join('');
+                // Update all viewers after initial render
+                setTimeout(() => {
+                    agents.forEach(a => {
+                        if (a.in_game) updateAgentViewer(a.name);
+                    });
+                }, 0);
+                return;
+            }
+
+            // Update only changed agents
+            changedAgents.forEach(agent => {
+                const el = document.getElementById(`agent-${agent.name}`);
+                if (el) {
+                    // Update existing card
+                    el.outerHTML = renderAgentCard(agent);
+                    if (agent.in_game) updateAgentViewer(agent.name);
+                } else {
+                    // Add new card
+                    agentsDiv.insertAdjacentHTML('beforeend', renderAgentCard(agent));
+                    if (agent.in_game) updateAgentViewer(agent.name);
+                }
+            });
+
+            // Remove cards for agents that no longer exist
+            Array.from(agentsDiv.children).forEach(el => {
+                const name = el.id.replace('agent-', '');
+                if (!agents.find(a => a.name === name)) {
+                    el.remove();
+                    delete inventoryOpen[name];
+                }
+            });
+        });
+
+        function restartAgent(n) { socket.emit('restart-agent', n); }
+        function disconnectAgent(n) { socket.emit('stop-agent', n); }
+        function startAgent(n) { 
+            const btn = document.querySelector(`button[onclick="startAgent('${n}')"]`);
+            if (btn) {
+                btn.textContent = '连接中…';
+                btn.disabled = true;
+                // Re-enable after 10s if still disabled (agent failed to connect)
+                setTimeout(() => {
+                    const retryBtn = document.querySelector(`button[onclick=\\"startAgent('${n}')\\"]`);
+                    const agentState = (window.currentAgents || []).find(a => a.name === n);
+                    const stillWaiting = agentState ? (!agentState.in_game && !agentState.socket_connected) : true;
+                    if (retryBtn && stillWaiting) {
+                        retryBtn.disabled = false;
+                        retryBtn.textContent = '连接';
+                    }
+                }, 10000);
+            }
+            socket.emit('start-agent', n);
+        }
+        function stopAgent(n) { socket.emit('stop-agent', n); }
+        function destroyAgent(n) { socket.emit('destroy-agent', n); }
+        function disconnectAllAgents() { 
+            socket.emit('stop-all-agents'); 
+        }
+        function confirmShutdown() {
+            if (confirm('确定要关闭服务器吗？\n这会停止所有角色并关闭服务器。')) {
+                socket.emit('shutdown');
+            }
+        }
+        function sendMessage(n, m) {
+            if (!m || !m.trim()) return;
+            socket.emit('send-message', n, { from: 'ADMIN', message: m });
+            const input = document.getElementById(`messageInput-${n}`);
+            const btn = document.getElementById(`sendBtn-${n}`);
+            if (input) input.value = '';
+            if (btn) btn.disabled = true;
+        }
+        function onMsgInputChange(name) {
+            const input = document.getElementById(`messageInput-${name}`);
+            const btn = document.getElementById(`sendBtn-${name}`);
+            if (btn && input) {
+                btn.disabled = !(input.value && input.value.trim().length > 0);
+            }
+        }
+
+        // ---- Push-to-talk voice input (browser Web Speech API, recognizes zh-CN) ----
+        // Holding the mic button (or the V key) records; releasing stops and drops the
+        // recognized text into that agent's message box for you to confirm and send.
+        let activeVoiceAgent = null;     // which agent the V key targets (last focused / recording)
+        let recognition = null;          // active SpeechRecognition instance
+        let recognizingAgent = null;     // agent we're currently recording for
+        let voiceBaseText = '';          // input text that was already there before recording
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        function startVoice(name) {
+            if (recognizingAgent) return; // already recording
+            if (!characterIsOnline(name)) return;
+            if (!SpeechRecognition) {
+                alert('当前浏览器不支持语音识别，请使用 Chrome 或 Edge。');
+                return;
+            }
+            const input = document.getElementById(`messageInput-${name}`);
+            if (!input) return;
+            activeVoiceAgent = name;
+            recognizingAgent = name;
+            voiceBaseText = input.value ? input.value.trim() : '';
+
+            recognition = new SpeechRecognition();
+            recognition.lang = 'zh-CN';
+            recognition.interimResults = true;
+            recognition.continuous = true;
+            recognition.onresult = (event) => {
+                let transcript = '';
+                for (let i = 0; i < event.results.length; i++) {
+                    transcript += event.results[i][0].transcript;
+                }
+                const inputEl = document.getElementById(`messageInput-${name}`);
+                if (inputEl) {
+                    inputEl.value = (voiceBaseText ? voiceBaseText + ' ' : '') + transcript;
+                    onMsgInputChange(name);
+                }
+            };
+            recognition.onerror = (event) => {
+                console.error('[voice] recognition error:', event.error);
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    alert('麦克风权限被拒绝，请在浏览器设置中允许使用麦克风。');
+                }
+            };
+            recognition.onend = () => {
+                const btn = document.getElementById(`micBtn-${name}`);
+                if (btn) btn.classList.remove('recording');
+                recognition = null;
+                recognizingAgent = null;
+            };
+            try {
+                recognition.start();
+                const btn = document.getElementById(`micBtn-${name}`);
+                if (btn) btn.classList.add('recording');
+            } catch (err) {
+                console.error('[voice] start failed:', err);
+                recognition = null;
+                recognizingAgent = null;
+            }
+        }
+
+        function stopVoice() {
+            if (recognition && recognizingAgent) {
+                try { recognition.stop(); } catch (err) { /* already stopped */ }
+            }
+        }
+
+        // Hold V to talk: targets the focused/last-used agent, or the only online agent.
+        document.addEventListener('keydown', (e) => {
+            if (e.code !== 'KeyV' || e.repeat) return;
+            const tag = (e.target.tagName || '').toLowerCase();
+            // ignore if typing into a text field (so you can type the letter "v")
+            if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+            let target = activeVoiceAgent;
+            if (!target || !characterIsOnline(target)) {
+                const online = currentAgents.filter(a => a.in_game);
+                if (online.length === 1) target = online[0].name;
+            }
+            if (target && characterIsOnline(target) && !recognizingAgent) {
+                e.preventDefault();
+                startVoice(target);
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'KeyV') stopVoice();
+        });
+
+        function toggleDetails(name) {
+            const invSection = document.getElementById(`inventorySection-${name}`);
+            if (!invSection) return;
+            const visible = invSection.style.display !== 'none';
+            const newVisible = !visible;
+            invSection.style.display = newVisible ? '' : 'none';
+            inventoryOpen[name] = newVisible;
+        }
+        window.toggleDetails = toggleDetails;
+    </script>
+</body>
+</html> 

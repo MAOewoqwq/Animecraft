@@ -1,0 +1,11 @@
+{
+    "name": "deepseek",
+
+    "model": "deepseek-chat",
+
+    "speak_model": {
+        "api": "fishaudio",
+        "reference_id": "713bcdb08ca0478ba2d20316d933ee55",
+        "speak_lang": "ja"
+    }
+}

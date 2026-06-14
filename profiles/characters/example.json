@@ -1,0 +1,38 @@
+{
+    "name": "Example_Character",
+
+    "_comment_skin_file": "该角色皮肤 PNG 的文件名，必须等于 name 且存在于仓库 skins/ 目录。皮肤靠 CustomSkinLoader 客户端模组按文件名加载，详见 skins/README.md。",
+    "skin_file": "Example_Character.png",
+
+    "model": "deepseek-chat",
+
+    "_comment_speak_model": "示例：通用 http TTS provider，对接你自己部署的 GPT-SoVITS api_v2.py。把 url 指向你的服务，ref_audio_path 换成该角色的参考音频，就能克隆任意音色。完整字段说明见 profiles/TTS.md。",
+
+    "speak_model": {
+        "api": "http",
+        "url": "http://127.0.0.1:9880/tts",
+        "method": "POST",
+        "format": "wav",
+        "response": "binary",
+        "body": {
+            "text": "{{text}}",
+            "text_lang": "ja",
+            "ref_audio_path": "ref/example.wav",
+            "prompt_text": "",
+            "prompt_lang": "ja",
+            "media_type": "wav",
+            "streaming_mode": false
+        },
+        "speak_lang": "ja",
+        "speak_persona": "話し手は女の子。優しい口調。",
+        "pronunciations": {}
+    },
+
+    "_comment_greeting": "可选。进入世界时随机说一句固定开场白（不调用模型）。留空或删除则不说。",
+    "greeting": [
+        "你好，我是示例角色",
+        "示例角色登场，请多指教"
+    ],
+
+    "conversing": "你是一个示例 Minecraft 机器人 $NAME。这只是用来演示如何配置通用 http 语音接口的占位角色。$SELF_PROMPT\n回应必须极简：每次只说一句话，不超过15个字。需要行动就立刻用命令。只以 $NAME 身份回应，无话可说就回复 '\t'。\nSummarized memory:'$MEMORY'\n$STATS\n$INVENTORY\n$COMMAND_DOCS\n$EXAMPLES\nConversation Begin:"
+}
