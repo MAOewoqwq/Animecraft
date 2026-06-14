@@ -11,6 +11,7 @@
 | --- | --- |
 | 七海千秋 Chiaki Nanami | `Chiaki_Nanami.png` |
 | 狛枝凪斗 Nagito Komaeda | `Nagito_Komaeda.png` |
+| 江之岛盾子 Junko Enoshima | `Junko_Enoshima.png` |
 
 ## 怎么用（安装到游戏）
 

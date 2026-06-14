@@ -99,6 +99,14 @@ export class Agent {
             if (this._disconnectHandled) return;
             this._disconnectHandled = true;
 
+            // RAW diagnostic: the formatted handler renders chat-component objects as
+            // "[object Object]", hiding the real cause. Dump the raw reason so we can see it.
+            try {
+                console.error(`[DISCONNECT RAW] event=${event} reason=`, JSON.stringify(reason));
+            } catch {
+                console.error(`[DISCONNECT RAW] event=${event} reason=`, reason);
+            }
+
             // Log and Analyze
             // handleDisconnection handles logging to console and server
             const { type } = handleDisconnection(this.name, reason);
@@ -198,6 +206,10 @@ export class Agent {
                     console.warn('received whisper from other bot??')
                 }
                 else {
+                    // Despair keyword trigger must run on the ORIGINAL (untranslated) text,
+                    // since the keywords are Chinese; handleEnglishTranslation below would
+                    // turn "反对绝望" into English and the match would never fire.
+                    if (await this.tryDespairTrigger(username, message)) return;
                     let translation = await handleEnglishTranslation(message);
                     this.handleMessage(username, translation);
                 }
@@ -436,6 +448,48 @@ export class Agent {
         }
 
         return used_command;
+    }
+
+    // Deterministic "despair" easter egg, driven by profile.despair_trigger.
+    // When the player says any of the configured keywords (e.g. "反对绝望"/"讨厌绝望"),
+    // run a fixed action flow entirely in code instead of relying on the LLM:
+    //   1. shout an angry line  2. !igniteTnt(player) (retreats + survives the blast)
+    //   3. shout a gleeful closing line
+    // Returns true if it handled the message (so handleMessage skips the model).
+    async tryDespairTrigger(source, message) {
+        const cfg = this.prompter.profile.despair_trigger;
+        if (!cfg || !Array.isArray(cfg.keywords) || cfg.keywords.length === 0) return false;
+        if (!message || !cfg.keywords.some(k => message.includes(k))) return false;
+
+        // Per-trigger cooldown so a player spamming the keyword can't make the bot fire
+        // /summon + /tp in a tight loop (which the server can flag as spam -> kick).
+        const cooldown = (cfg.cooldown ?? 15) * 1000;
+        const now = Date.now();
+        if (now - (this._lastDespairTrigger || 0) < cooldown) return true; // matched, but on cooldown: swallow it silently
+        this._lastDespairTrigger = now;
+
+        const pick = (arr, fallback) =>
+            (Array.isArray(arr) && arr.length > 0) ? arr[Math.floor(Math.random() * arr.length)] : fallback;
+
+        // 1. angry line (fires voice + in-game chat). Await it and add a small gap before the
+        // gag's /effect|/summon commands so the chat messages don't pile up in the same tick —
+        // back-to-back chat is what tripped "chat_validation_failed" -> kick on 1.21.6.
+        await this.openChat(pick(cfg.angry_lines, '敢否定绝望？！'));
+        await new Promise(resolve => setTimeout(resolve, 700));
+
+        // 2. the fixed TNT gag — reuse the hardened !igniteTnt command (full blast immunity +
+        // serialized commands, so the bot survives and is never kicked mid-gag).
+        const safeName = String(source).replace(/[^a-zA-Z0-9_]/g, '');
+        try {
+            await executeCommand(this, `!igniteTnt("${safeName}")`);
+        } catch (e) {
+            console.error('despair trigger igniteTnt failed:', e);
+        }
+
+        // 3. gleeful closing line, after the blast resolved
+        await new Promise(resolve => setTimeout(resolve, 500));
+        this.openChat(pick(cfg.gleeful_lines, '呜噗噗，这就是绝望！'));
+        return true;
     }
 
     async routeResponse(to_player, message) {

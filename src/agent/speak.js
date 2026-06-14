@@ -7,6 +7,22 @@ import { TTSConfig as geminiTTSConfig } from '../models/gemini.js';
 import { getKey } from '../utils/keys.js';
 import translate from 'google-translate-api-x';
 
+// fetch() with a hard timeout. Without this, a slow/hung TTS or translate backend
+// blocks the whole speech queue forever (the bot "freezes" mid-line). On timeout the
+// caller throws and the queue falls back to the system voice / skips ahead.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+        if (err.name === 'AbortError') throw new Error(`request timed out after ${timeoutMs}ms`);
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 const ANIME_JA_PROMPT = `あなたは中国語のセリフを日本語に翻訳する声優です。次のルールに厳密に従ってください：
 1. 原文の意味に忠実に訳す。勝手に内容を足したり、削ったり、言い換えで意味を変えたりしない。
 2. 必ずタメ口（非敬語・常体）で訳す。「です・ます」は使わない。
@@ -24,7 +40,7 @@ async function translateForSpeech(text, lang, persona) {
             // translation matches the character. Without it the model sometimes guesses wrong
             // (e.g. using male 「おれ」 for a female character).
             const systemPrompt = persona ? `${ANIME_JA_PROMPT}\n6. ${persona}` : ANIME_JA_PROMPT;
-            const res = await fetch('https://api.deepseek.com/chat/completions', {
+            const res = await fetchWithTimeout('https://api.deepseek.com/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
@@ -38,7 +54,7 @@ async function translateForSpeech(text, lang, persona) {
                     ],
                     temperature: 0.3
                 })
-            });
+            }, 8000);
             if (!res.ok) throw new Error(`DeepSeek translate failed (${res.status})`);
             const data = await res.json();
             const out = data.choices?.[0]?.message?.content?.trim();
@@ -137,7 +153,7 @@ async function httpTTSRequest(text, model) {
         }
     }
 
-    const res = await fetch(url, options);
+    const res = await fetchWithTimeout(url, options, 12000);
     if (!res.ok) {
         const errText = await res.text().catch(() => '');
         throw new Error(`http TTS failed (${res.status}): ${errText}`);
@@ -165,7 +181,7 @@ async function httpTTSRequest(text, model) {
 
 async function fishAudioRequest(text, referenceId) {
     const apiKey = getKey('FISHAUDIO_API_KEY');
-    const res = await fetch('https://api.fish.audio/v1/tts', {
+    const res = await fetchWithTimeout('https://api.fish.audio/v1/tts', {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${apiKey}`,
@@ -180,7 +196,7 @@ async function fishAudioRequest(text, referenceId) {
             normalize: true,
             latency: 'normal'
         })
-    });
+    }, 12000);
     if (!res.ok) {
         const errText = await res.text();
         throw new Error(`FishAudio TTS failed (${res.status}): ${errText}`);
@@ -279,6 +295,16 @@ function speakSystem(txt, done) {
     });
 }
 
+// If a player process hangs (zombie afplay/ffplay, stuck audio device), kill it after
+// a max duration and advance the queue, so one bad clip can't freeze all speech.
+function armPlaybackWatchdog(player, done, maxMs = 20000) {
+    return setTimeout(() => {
+        console.error('[TTS] playback watchdog fired, killing stuck player');
+        try { player.kill('SIGKILL'); } catch {}
+        done();
+    }, maxMs);
+}
+
 async function processQueue() {
     isSpeaking = true;
     if (speakingQueue.length === 0) {
@@ -287,7 +313,16 @@ async function processQueue() {
     }
     const item = speakingQueue.shift();
     const { text: txt, model, format } = item;
-    const next = () => { isSpeaking = false; processQueue(); };
+    // Guard so the queue only ever advances once per item. Playback callbacks can
+    // double-fire (e.g. afplay emits both 'error' and 'exit'), which would otherwise
+    // advance the queue twice and desync it.
+    let advanced = false;
+    const next = () => {
+        if (advanced) return;
+        advanced = true;
+        isSpeaking = false;
+        processQueue();
+    };
     if (txt.trim() === '') {
         next();
         return;
@@ -328,12 +363,15 @@ async function processQueue() {
                 const player = spawn('ffplay', ['-nodisp', '-autoexit', '-loglevel', 'quiet', tmpPath], {
                     stdio: 'ignore', windowsHide: true
                 });
+                const watchdog = armPlaybackWatchdog(player, next);
                 player.on('error', async (err) => {
                     console.error('[TTS] ffplay error', err);
+                    clearTimeout(watchdog);
                     try { await fs.unlink(tmpPath); } catch {}
                     next();
                 });
                 player.on('exit', async () => {
+                    clearTimeout(watchdog);
                     try { await fs.unlink(tmpPath); } catch {}
                     next();
                 });
@@ -343,12 +381,15 @@ async function processQueue() {
                 await fs.writeFile(tmpPath, Buffer.from(audioData, 'base64'));
 
                 const player = spawn('afplay', [tmpPath], { stdio: 'ignore' });
+                const watchdog = armPlaybackWatchdog(player, next);
                 player.on('error', async (err) => {
                     console.error('[TTS] afplay error', err);
+                    clearTimeout(watchdog);
                     try { await fs.unlink(tmpPath); } catch {}
                     next();
                 });
                 player.on('exit', async () => {
+                    clearTimeout(watchdog);
                     try { await fs.unlink(tmpPath); } catch {}
                     next();
                 });
@@ -357,9 +398,17 @@ async function processQueue() {
                 const player = spawn('ffplay', ['-nodisp','-autoexit','pipe:0'], {
                     stdio: ['pipe','ignore','ignore']
                 });
+                const watchdog = armPlaybackWatchdog(player, next);
+                player.on('error', (err) => {
+                    console.error('[TTS] ffplay error', err);
+                    clearTimeout(watchdog);
+                    next();
+                });
+                player.stdin.on('error', () => {}); // ignore EPIPE if player died early
                 player.stdin.write(Buffer.from(audioData, 'base64'));
                 player.stdin.end();
                 player.on('exit', () => {
+                    clearTimeout(watchdog);
                     next();
                 });
             }

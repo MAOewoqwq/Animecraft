@@ -367,6 +367,52 @@ export async function attackEntity(bot, entity, kill=true) {
     }
 }
 
+export async function igniteTntAt(bot, username) {
+    /**
+     * Go to a player, place a primed TNT at their feet and detonate it (the "despair" easter egg).
+     * Spawns an already-primed TNT entity via cheat command so it explodes on its own; no flint needed.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {string} username, the target player to blow up.
+     * @returns {Promise<boolean>} true if the tnt was spawned, false otherwise.
+     * @example
+     * await skills.igniteTntAt(bot, "player");
+     **/
+    const player = bot.players[username]?.entity;
+    if (!player) {
+        log(bot, `Could not find player ${username} to ignite tnt on.`);
+        return false;
+    }
+    const p = player.position.clone();
+
+    // KEY FIX: the real cause of the disconnect was NOT flying/teleport — it was
+    // "multiplayer.disconnect.chat_validation_failed". On 1.21.6 the server validates the
+    // chat-message chain, and firing several bot.chat() commands back-to-back (with no gap)
+    // makes mineflayer send them in a way the server rejects -> kick -> process.exit (which
+    // is also why the gleeful closing line never ran). Fix: send each command SERIALLY with a
+    // gap between them, and retreat WITHOUT any extra chat command.
+    const sendCmd = async (cmd, gap = 700) => {
+        bot.chat(cmd);
+        await new Promise(resolve => setTimeout(resolve, gap));
+    };
+
+    // resistance level 255 = total immunity to explosion damage. Bot survives even point-blank,
+    // so it doesn't need to flee at all — the "retreat" below is purely cosmetic.
+    await sendCmd(`/effect give @s minecraft:resistance 20 255 true`);
+
+    // Cosmetic retreat using the pathfinder only (NO /tp, NO chat) so it can't add to the
+    // chat-message chain. Fire-and-forget; the bot is immune anyway.
+    moveAwayFromEntity(bot, player, 8).catch(() => {});
+
+    // summon an already-primed tnt at the target's feet — ~2s fuse
+    await sendCmd(`/summon tnt ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)} {fuse:40}`);
+    log(bot, `Lit a primed TNT under ${username}. Despair!`);
+
+    // wait for the fuse to burn down + the explosion to fully resolve.
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    await sendCmd(`/effect clear @s minecraft:resistance`, 0);
+    return true;
+}
+
 export async function defendSelf(bot, range=9) {
     /**
      * Defend yourself from all nearby hostile mobs until there are no more.

@@ -329,6 +329,14 @@ export const actionsList = [
         })
     },
     {
+        name: '!igniteTnt',
+        description: 'Go to a player and detonate a primed TNT at their feet. In-character despair gag, not real harm.',
+        params: {'player_name': { type: 'string', description: 'The name of the player to blow up.'}},
+        perform: runAsAction(async (agent, player_name) => {
+            await skills.igniteTntAt(agent.bot, player_name);
+        })
+    },
+    {
         name: '!goToBed',
         description: 'Go to the nearest bed and sleep.',
         perform: runAsAction(async (agent) => {
